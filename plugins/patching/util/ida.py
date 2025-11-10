@@ -224,41 +224,73 @@ def apply_patches(filepath):
         except Exception as e:
             print("[Patching] ⚠️  无法检查隔离属性: %s" % str(e))
         
-        # 2. Remove code signature
+        # 2. Re-sign the binary with adhoc signature (CRITICAL for ARM64!)
+        # After patching, the original signature is invalid and must be replaced.
+        # On Apple Silicon (ARM64), unsigned binaries cannot run at all.
+        print("\n[Patching] 重新签名二进制文件...")
         try:
-            # Check if the binary is signed first
+            # First, check if the file has an existing signature
             check_result = subprocess.run(
-                ['codesign', '-dv', filepath],
+                ['codesign', '-dvv', filepath],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
             
-            # If the binary is signed (exit code 0), remove the signature
-            if check_result.returncode == 0:
-                print("[Patching] 检测到代码签名，正在移除...")
-                result = subprocess.run(
+            had_signature = (check_result.returncode == 0)
+            
+            if had_signature:
+                print("[Patching] 检测到原有签名，正在移除并重新签名...")
+                # Remove old signature first
+                remove_result = subprocess.run(
                     ['codesign', '--remove-signature', filepath],
                     capture_output=True,
                     text=True,
                     timeout=5
                 )
-                if result.returncode == 0:
-                    print("[Patching] ✅ 已移除代码签名")
-                else:
-                    print("[Patching] ⚠️  警告: 无法移除代码签名")
-                    print("[Patching] 请手动运行: codesign --remove-signature '%s'" % filepath)
+                if remove_result.returncode != 0:
+                    print("[Patching] ⚠️  移除旧签名时出现警告")
             else:
-                # Binary is not signed, no need to remove signature
-                print("[Patching] ✅ 二进制文件未签名")
+                print("[Patching] 文件原本没有签名")
+            
+            # Re-sign with adhoc signature (required for ARM64 to run!)
+            # The -s - option creates an adhoc signature (no identity required)
+            sign_result = subprocess.run(
+                ['codesign', '-s', '-', '-f', filepath],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if sign_result.returncode == 0:
+                print("[Patching] ✅ 已重新签名 (adhoc signature)")
+                print("[Patching] 💡 ARM64 程序必须有签名才能运行")
+                
+                # Verify the new signature
+                verify_result = subprocess.run(
+                    ['codesign', '-v', filepath],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if verify_result.returncode == 0:
+                    print("[Patching] ✅ 签名验证成功")
+                else:
+                    print("[Patching] ⚠️  签名验证失败: %s" % verify_result.stderr)
+            else:
+                print("[Patching] ❌ 重新签名失败: %s" % sign_result.stderr)
+                print("[Patching] 💡 手动重新签名:")
+                print("[Patching]    codesign -s - -f '%s'" % filepath)
                 
         except Exception as e:
             # codesign command not available or other error
-            print("[Patching] ⚠️  无法检查代码签名: %s" % str(e))
+            print("[Patching] ⚠️  无法重新签名: %s" % str(e))
+            print("[Patching] 💡 如果程序无法运行，请手动签名:")
+            print("[Patching]    codesign -s - -f '%s'" % filepath)
 
     print("[Patching] ========== 补丁应用完成 ==========\n")
     print("[Patching] 📝 使用诊断工具检查文件:")
-    print("[Patching]    python3 diagnose.py '%s'" % filepath)
+    print("[Patching]    python diagnose.py '%s'" % filepath)
     print("[Patching] 📝 或手动检查:")
     print("[Patching]    ls -la '%s'" % filepath)
     print("[Patching]    file '%s'" % filepath)
