@@ -156,6 +156,7 @@ class PatchingCore(object):
         Initialize the assembly engine to be used for patching.
         """
         arch_name = ida_ida.inf_get_procname()
+        print(f"\n>>>>>>>>>>>>>>>>>>>>>>>>\n当前加载的CPU类型为: {arch_name}")
 
         if arch_name == 'metapc':
             assembler = AsmX86()
