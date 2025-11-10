@@ -5,21 +5,23 @@
 
 QT_AVAILABLE = False
 
-# attempt to load PyQt5
+# attempt to load PySide6 (IDA 9.0+)
 try:
-    import PyQt5.QtGui as QtGui
-    import PyQt5.QtCore as QtCore
-    import PyQt5.QtWidgets as QtWidgets
-    from PyQt5 import sip
+    from PySide6 import QtGui, QtCore, QtWidgets
+    import shiboken6
+    
+    # create a compatibility layer for sip (used in ida.py)
+    class sip:
+        wrapinstance = staticmethod(shiboken6.wrapInstance)
 
-    # importing PyQt5 went okay, let's see if we're in an IDA Qt context
+    # importing PySide6 went okay, let's see if we're in an IDA Qt context
     try:
         import ida_kernwin
         QT_AVAILABLE = ida_kernwin.is_idaq()
     except ImportError:
         pass
 
-# import failed, PyQt5 is not available
+# import failed, PySide6 is not available
 except ImportError:
     pass
 

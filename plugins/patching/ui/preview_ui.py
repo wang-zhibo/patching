@@ -39,7 +39,7 @@ class PatchingDockable(ida_kernwin.PluginForm):
         self.set_cursor_pos(self.controller.address, self.controller.address_idx, 0, 6)
 
         # set the initial keyboard focus the editable assembly line
-        self._line_assembly.setFocus(QtCore.Qt.FocusReason.ActiveWindowFocusReason)
+        self._line_assembly.setFocus(QtCore.Qt.ActiveWindowFocusReason)
 
     def OnCreate(self, form):
         self._twidget = form
