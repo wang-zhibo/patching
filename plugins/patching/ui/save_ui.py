@@ -126,7 +126,7 @@ class SaveDialog(QtWidgets.QDialog):
 
         # prompt the user to select a patch target / output file
         dialog = QtWidgets.QFileDialog()
-        filepath, _ = dialog.getSaveFileName(caption="Select patch target...", directory=starting_directory)
+        filepath, _ = dialog.getSaveFileName(caption="Select patch target...", dir=starting_directory)
 
         # user did not select a file or closed the file dialog
         if not filepath:
