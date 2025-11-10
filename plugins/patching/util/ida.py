@@ -81,6 +81,16 @@ def apply_patches(filepath):
     """
     Apply the current IDB patches to the given filepath.
     """
+    
+    import os
+    import sys
+    import subprocess
+    
+    # Save original file permissions before patching
+    try:
+        original_mode = os.stat(filepath).st_mode
+    except:
+        original_mode = None
 
     with open(filepath, 'r+b') as f:
 
@@ -137,6 +147,62 @@ def apply_patches(filepath):
         #
 
         pass
+
+    #
+    # Restore original file permissions after patching
+    # This is important because file operations may change the executable bit
+    #
+    
+    if original_mode is not None:
+        try:
+            os.chmod(filepath, original_mode)
+            print("[Patching] 已恢复文件权限")
+        except Exception as e:
+            print("[Patching] 警告: 无法恢复原始权限: %s" % str(e))
+    else:
+        # If we couldn't get original permissions, at least ensure it's executable
+        try:
+            os.chmod(filepath, 0o755)
+            print("[Patching] 已设置可执行权限")
+        except Exception as e:
+            print("[Patching] 警告: 无法设置可执行权限: %s" % str(e))
+    
+    #
+    # On macOS, remove code signature after patching to allow the binary to run
+    # Modified binaries with invalid signatures will be rejected by macOS
+    #
+    
+    if sys.platform == 'darwin':
+        try:
+            # Check if the binary is signed first
+            check_result = subprocess.run(
+                ['codesign', '-dv', filepath],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            # If the binary is signed (exit code 0), remove the signature
+            if check_result.returncode == 0:
+                result = subprocess.run(
+                    ['codesign', '--remove-signature', filepath],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    print("[Patching] 已移除代码签名: %s" % filepath)
+                else:
+                    print("[Patching] 警告: 无法移除代码签名")
+                    print("[Patching] 请手动运行: codesign --remove-signature '%s'" % filepath)
+            else:
+                # Binary is not signed, no need to remove signature
+                print("[Patching] 二进制文件未签名，无需移除签名")
+                
+        except Exception as e:
+            # codesign command not available or other error
+            print("[Patching] 提示: 如果程序无法运行，请手动运行:")
+            print("[Patching]   codesign --remove-signature '%s'" % filepath)
 
     # done done
     return
