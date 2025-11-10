@@ -86,11 +86,16 @@ def apply_patches(filepath):
     import sys
     import subprocess
     
+    print("\n[Patching] ========== 开始应用补丁 ==========")
+    print("[Patching] 目标文件: %s" % filepath)
+    
     # Save original file permissions before patching
     try:
         original_mode = os.stat(filepath).st_mode
-    except:
+        print("[Patching] 原始文件权限: %s" % oct(original_mode))
+    except Exception as e:
         original_mode = None
+        print("[Patching] 警告: 无法读取原始权限: %s" % str(e))
 
     with open(filepath, 'r+b') as f:
 
@@ -140,7 +145,16 @@ def apply_patches(filepath):
         # RUN THE VISITOR / APPLY PATCHES
         #
 
-        ida_bytes.visit_patched_bytes(0, ida_idaapi.BADADDR, visitor)
+        print("[Patching] 正在写入补丁字节...")
+        patch_count = [0]  # Use list to allow modification in nested function
+        
+        def counting_visitor(ea, file_offset, original_value, patched_value):
+            patch_count[0] += 1
+            return visitor(ea, file_offset, original_value, patched_value)
+        
+        ida_bytes.visit_patched_bytes(0, ida_idaapi.BADADDR, counting_visitor)
+        
+        print("[Patching] 已应用 %d 个补丁字节" % patch_count[0])
 
         #
         # all done, file will close as we leave this 'with' scoping
@@ -153,26 +167,64 @@ def apply_patches(filepath):
     # This is important because file operations may change the executable bit
     #
     
+    print("\n[Patching] 处理文件权限...")
     if original_mode is not None:
         try:
             os.chmod(filepath, original_mode)
-            print("[Patching] 已恢复文件权限")
+            new_mode = os.stat(filepath).st_mode
+            print("[Patching] ✅ 已恢复文件权限: %s" % oct(new_mode))
+            if os.access(filepath, os.X_OK):
+                print("[Patching] ✅ 文件具有可执行权限")
+            else:
+                print("[Patching] ⚠️  警告: 文件没有可执行权限!")
         except Exception as e:
-            print("[Patching] 警告: 无法恢复原始权限: %s" % str(e))
+            print("[Patching] ❌ 警告: 无法恢复原始权限: %s" % str(e))
     else:
         # If we couldn't get original permissions, at least ensure it's executable
         try:
             os.chmod(filepath, 0o755)
-            print("[Patching] 已设置可执行权限")
+            print("[Patching] ✅ 已设置可执行权限 (755)")
         except Exception as e:
-            print("[Patching] 警告: 无法设置可执行权限: %s" % str(e))
+            print("[Patching] ❌ 警告: 无法设置可执行权限: %s" % str(e))
     
     #
-    # On macOS, remove code signature after patching to allow the binary to run
-    # Modified binaries with invalid signatures will be rejected by macOS
+    # On macOS, handle quarantine attributes and code signatures
+    # These are the main reasons why patched binaries fail to run
     #
     
     if sys.platform == 'darwin':
+        print("\n[Patching] 处理 macOS 安全属性...")
+        
+        # 1. Remove quarantine attribute (CRITICAL!)
+        try:
+            # Check if quarantine attribute exists
+            check_result = subprocess.run(
+                ['xattr', '-l', filepath],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if 'com.apple.quarantine' in check_result.stdout:
+                print("[Patching] 检测到隔离属性，正在移除...")
+                result = subprocess.run(
+                    ['xattr', '-d', 'com.apple.quarantine', filepath],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    print("[Patching] ✅ 已移除隔离属性 (Quarantine)")
+                else:
+                    print("[Patching] ⚠️  警告: 无法移除隔离属性")
+                    print("[Patching] 请手动运行: xattr -d com.apple.quarantine '%s'" % filepath)
+            else:
+                print("[Patching] ✅ 文件没有隔离属性")
+                
+        except Exception as e:
+            print("[Patching] ⚠️  无法检查隔离属性: %s" % str(e))
+        
+        # 2. Remove code signature
         try:
             # Check if the binary is signed first
             check_result = subprocess.run(
@@ -184,6 +236,7 @@ def apply_patches(filepath):
             
             # If the binary is signed (exit code 0), remove the signature
             if check_result.returncode == 0:
+                print("[Patching] 检测到代码签名，正在移除...")
                 result = subprocess.run(
                     ['codesign', '--remove-signature', filepath],
                     capture_output=True,
@@ -191,18 +244,25 @@ def apply_patches(filepath):
                     timeout=5
                 )
                 if result.returncode == 0:
-                    print("[Patching] 已移除代码签名: %s" % filepath)
+                    print("[Patching] ✅ 已移除代码签名")
                 else:
-                    print("[Patching] 警告: 无法移除代码签名")
+                    print("[Patching] ⚠️  警告: 无法移除代码签名")
                     print("[Patching] 请手动运行: codesign --remove-signature '%s'" % filepath)
             else:
                 # Binary is not signed, no need to remove signature
-                print("[Patching] 二进制文件未签名，无需移除签名")
+                print("[Patching] ✅ 二进制文件未签名")
                 
         except Exception as e:
             # codesign command not available or other error
-            print("[Patching] 提示: 如果程序无法运行，请手动运行:")
-            print("[Patching]   codesign --remove-signature '%s'" % filepath)
+            print("[Patching] ⚠️  无法检查代码签名: %s" % str(e))
+
+    print("[Patching] ========== 补丁应用完成 ==========\n")
+    print("[Patching] 📝 使用诊断工具检查文件:")
+    print("[Patching]    python3 diagnose.py '%s'" % filepath)
+    print("[Patching] 📝 或手动检查:")
+    print("[Patching]    ls -la '%s'" % filepath)
+    print("[Patching]    file '%s'" % filepath)
+    print("[Patching]    '%s'" % filepath)
 
     # done done
     return

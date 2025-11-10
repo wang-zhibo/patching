@@ -521,9 +521,11 @@ class PatchingCore(object):
             # a file, we simply trap them all to a more descriptive issue for
             # what action failed in the context of our patching attempt
             #
+            # NOTE: use copy2() instead of copyfile() to preserve permissions
+            #
 
             try:
-                shutil.copyfile(self.backup_filepath, target_filepath)
+                shutil.copy2(self.backup_filepath, target_filepath)
             except Exception:
                 raise PatchTargetError("Failed to overwrite patch target with a clean executable", target_filepath)
 
@@ -707,9 +709,11 @@ class PatchingCore(object):
         # doesn't seem to exist yet (... or we can't seem to read the file,
         # in which case we're trying a last ditch attempt at overwriting it)
         #
+        # NOTE: use copy2() instead of copyfile() to preserve permissions
+        #
 
         try:
-            shutil.copyfile(target_filepath, clean_filepath)
+            shutil.copy2(target_filepath, clean_filepath)
 
         #
         # if we failed to write (overwrite?) the desired file for our clean
